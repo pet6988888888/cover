@@ -926,60 +926,6 @@ async function generateAndDownload(format) {
             /**
              * Converts the cover preview element into a high-resolution file (PNG or JPEG) and triggers download.
              */
-            async function generateAndDownload(format) {
-                const coverElement = previewElements.coverPreview;
-                
-                // Target A4 dimensions (300 DPI) for high resolution
-                const targetWidth = 2480; 
-                
-                // Calculate scale factor based on target width and current element width
-                // This ensures the element is rasterized at print resolution.
-                const scaleFactor = targetWidth / coverElement.offsetWidth; 
-                
-                const formatUpper = format.charAt(0).toUpperCase() + format.slice(1);
-                const currentBtn = previewElements[`download${formatUpper}Btn`];
-                
-                const originalText = currentBtn.textContent;
-                currentBtn.textContent = `Generating ${format.toUpperCase()}...`;
-                currentBtn.disabled = true;
-
-                try {
-                    const canvas = await html2canvas(coverElement, {
-                        scale: scaleFactor, 
-                        useCORS: true, 
-                        allowTaint: true,
-                        backgroundColor: null 
-                    });
-
-                    let downloadLink;
-                    const mimeType = format === 'png' ? 'image/png' : 'image/jpeg';
-                    const filename = `cookbook_cover_a4.${format}`;
-                        
-                    downloadLink = canvas.toDataURL(mimeType, 1.0); 
-
-                    const a = document.createElement('a');
-                    a.href = downloadLink;
-                    a.download = filename;
-                    document.body.appendChild(a);
-                    a.click();
-                    document.body.removeChild(a);
-
-                    currentBtn.textContent = originalText;
-                    currentBtn.disabled = false;
-                    
-                } catch (error) {
-                    console.error("Error generating or downloading cover:", error);
-                    
-                    const errorDiv = document.createElement('div');
-                    errorDiv.textContent = `Error: Could not generate ${format.toUpperCase()}. Check the console for details.`;
-                    errorDiv.className = 'error-message fixed top-4 right-4 m-4 p-3 bg-red-600 text-white font-semibold rounded-lg shadow-lg';
-                    document.body.appendChild(errorDiv);
-                    setTimeout(() => document.body.removeChild(errorDiv), 7000);
-
-                    currentBtn.textContent = originalText;
-                    currentBtn.disabled = false;
-                }
-            }
 
             // --- Dedicated Image File Handler ---
             controls.imageFileInput.addEventListener('change', function(event) {

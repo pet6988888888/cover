@@ -83,9 +83,23 @@
             100% { opacity: 0; }
         }
 
-        /* #####################################################################
-           FIX: @media print for browser printing consistency 
-           ##################################################################### */
+        /* FIX: Cover preview responsive sizing */
+        #cover-preview-container {
+            max-height: calc(100vh - 6rem);
+            width: auto;
+            height: auto;
+        }
+
+        /* Ensure the preview wrapper centers and constrains properly */
+        .preview-wrapper {
+            display: flex;
+            align-items: center;
+            justify-content: center;
+            height: 100%;
+            padding: 1rem;
+        }
+
+        /* @media print for browser printing consistency */
         @media print {
             /* Hide controls and general page elements */
             #controls {
@@ -117,12 +131,12 @@
             
             /* Crucial: Ensure the image maintains aspect ratio on print */
             #cover-image {
-    width: 100%;
-    height: 100%;
-    object-fit: cover;
-    object-position: center;
-    display: block;
-}
+                width: 100%;
+                height: 100%;
+                object-fit: cover;
+                object-position: center;
+                display: block;
+            }
         }
     </style>
     <script>
@@ -154,6 +168,11 @@
                 // Divider Controls
                 dividerColor: document.getElementById('divider-color'),
                 dividerThickness: document.getElementById('divider-thickness'),
+                
+                // Border Controls (NEW)
+                borderToggle: document.getElementById('border-toggle'),
+                borderColor: document.getElementById('border-color'),
+                borderWidth: document.getElementById('border-width'),
                 
                 // Sub-Headline Styles (Updated with Position)
                 subHeadlinePosition: document.getElementById('sub-headline-position'), // NEW
@@ -197,6 +216,7 @@
                 dividerThicknessDisplay: document.getElementById('divider-thickness-display'), 
                 logoSizeDisplay: document.getElementById('logo-size-display'),
                 overlayOpacityDisplay: document.getElementById('overlay-opacity-display'),
+                borderWidthDisplay: document.getElementById('border-width-display'),
                 downloadPngBtn: document.getElementById('download-png-btn'),
                 downloadJpgBtn: document.getElementById('download-jpg-btn'),
             };
@@ -225,6 +245,9 @@
                 const b = parseInt(hex.slice(5, 7), 16);
                 return `rgba(${r}, ${g}, ${b}, ${alpha})`;
             };
+            
+            // Store original image data for proper export
+            let originalImageData = null;
             
             /**
              * Updates the cover design based on current control values.
@@ -318,87 +341,113 @@
                 previewElements.slogan.style.fontFamily = fontMap[controls.sloganFont.value];
                 previewElements.slogan.style.fontSize = `${controls.sloganSize.value}px`;
                 previewElements.sloganSizeDisplay.textContent = `${controls.sloganSize.value}px`;
+                
+                // 9. Border Updates (NEW)
+                const borderEnabled = controls.borderToggle.checked;
+                const borderColor = controls.borderColor.value;
+                const borderWidth = controls.borderWidth.value;
+                
+                if (borderEnabled) {
+                    previewElements.coverPreviewContainer.style.border = `${borderWidth}px solid ${borderColor}`;
+                } else {
+                    previewElements.coverPreviewContainer.style.border = 'none';
+                }
+                previewElements.borderWidthDisplay.textContent = `${borderWidth}px`;
             }
 
             /**
              * Converts the cover preview element into a high-resolution file (PNG or JPEG) and triggers download.
+             * FIX: Properly maintains aspect ratio by using background-image approach during capture.
              */
-/**
- * FIXED VERSION:
- * This version makes your downloaded image look EXACTLY like the preview
- * (no more squished or stretched image!)
- */
-async function generateAndDownload(format) {
-    const coverElement = previewElements.coverPreview;
+            async function generateAndDownload(format) {
+                const elementToCapture = previewElements.coverPreviewContainer;
+                const targetWidthPx = 2480; 
+                // Calculate height based on the actual element's aspect ratio to prevent distortion
+                const aspectRatio = elementToCapture.offsetHeight / elementToCapture.offsetWidth;
+                const targetHeightPx = Math.round(targetWidthPx * aspectRatio);
 
-    // A4 print size (width 2480px at 300 DPI)
-    const targetWidth = 2480;
-    const scaleFactor = targetWidth / coverElement.offsetWidth;
+                const scale = targetWidthPx / elementToCapture.offsetWidth;
+                
+                const mimeType = format === 'jpg' ? 'image/jpeg' : 'image/png';
+                const quality = format === 'jpg' ? 0.95 : 1.0; 
+                const filename = `cookbook_cover.${format}`;
 
-    const formatUpper = format.charAt(0).toUpperCase() + format.slice(1);
-    const currentBtn = previewElements[`download${formatUpper}Btn`];
+                // FIX: Store original image styles and temporarily modify for capture
+                const imageElement = previewElements.coverImage;
+                const imageSectionElement = previewElements.imageSection;
+                
+                // Store original styles
+                const originalImageStyle = imageElement.getAttribute('style') || '';
+                const originalSectionStyle = imageSectionElement.getAttribute('style') || '';
+                const originalImageClass = imageElement.className;
+                
+                // FIX: Get the EXACT computed dimensions BEFORE any changes
+                const sectionRect = imageSectionElement.getBoundingClientRect();
+                const sectionHeight = sectionRect.height;
+                const originalFlexGrow = imageSectionElement.style.flexGrow;
+                
+                // FIX: Convert the image to a background-image approach for proper capture
+                const imgSrc = imageElement.src;
+                const grayscale = controls.grayscaleToggle.checked;
+                
+                // FIX: Set explicit height on image section BEFORE hiding the image
+                // This prevents the flex container from collapsing
+                imageSectionElement.style.height = `${sectionHeight}px`;
+                imageSectionElement.style.flexGrow = '0';
+                imageSectionElement.style.flexShrink = '0';
+                
+                // Hide the img element and use background-image on the section
+                imageElement.style.display = 'none';
+                imageSectionElement.style.backgroundImage = `url('${imgSrc}')`;
+                imageSectionElement.style.backgroundSize = 'cover';
+                imageSectionElement.style.backgroundPosition = 'center';
+                imageSectionElement.style.backgroundRepeat = 'no-repeat';
+                if (grayscale) {
+                    imageSectionElement.style.filter = 'grayscale(100%)';
+                }
 
-    const originalText = currentBtn.textContent;
-    currentBtn.textContent = `Generating ${format.toUpperCase()}...`;
-    currentBtn.disabled = true;
-
-    try {
-        const originalImg = document.querySelector('#cover-image');
-        const originalSrc = originalImg ? originalImg.src : null;
-
-        const canvas = await html2canvas(coverElement, {
-            scale: scaleFactor,
-            useCORS: true,
-            allowTaint: true,
-            backgroundColor: null,
-            imageTimeout: 0,
-            onclone: (clonedDoc) => {
-                const clonedImage = clonedDoc.querySelector('#cover-image');
-                const clonedImageSection = clonedDoc.querySelector('#image-section');
-
-                if (clonedImage && clonedImageSection) {
-                    // Hide the real <img> in the clone
-                    clonedImage.style.display = 'none';
-
-                    // Use the same image as a background (works perfectly with cover)
-                    if (originalSrc) {
-                        clonedImageSection.style.backgroundImage = `url("${originalSrc}")`;
-                        clonedImageSection.style.backgroundSize = 'cover';
-                        clonedImageSection.style.backgroundPosition = 'center';
-                        clonedImageSection.style.backgroundRepeat = 'no-repeat';
-                        clonedImageSection.style.width = '100%';
-                        clonedImageSection.style.height = '100%';
-                    }
+                try {
+                    const canvas = await html2canvas(elementToCapture, {
+                        scale: scale,
+                        useCORS: true,
+                        allowTaint: true,
+                        logging: false,
+                        width: elementToCapture.offsetWidth,
+                        height: elementToCapture.offsetHeight,
+                    });
+                    
+                    // Use the canvas directly from html2canvas - it's already at the correct proportions
+                    const dataUrl = canvas.toDataURL(mimeType, quality);
+                    const link = document.createElement('a');
+                    link.download = filename;
+                    link.href = dataUrl;
+                    link.click();
+                } catch (error) {
+                    console.error('Error generating image:', error);
+                    const errorDiv = document.createElement('div');
+                    errorDiv.className = 'error-message fixed top-4 left-1/2 -translate-x-1/2 bg-red-600 text-white p-4 rounded-lg shadow-xl';
+                    errorDiv.textContent = 'Error generating image. Please try again or use a different image.';
+                    document.body.appendChild(errorDiv);
+                    setTimeout(() => errorDiv.remove(), 5000); 
+                } finally {
+                    // FIX: Restore ALL original styles after capture
+                    imageElement.style.display = '';
+                    imageElement.setAttribute('style', originalImageStyle);
+                    imageElement.className = originalImageClass;
+                    
+                    // Remove the temporary styles
+                    imageSectionElement.style.height = '';
+                    imageSectionElement.style.flexShrink = '';
+                    imageSectionElement.style.backgroundImage = '';
+                    imageSectionElement.style.backgroundSize = '';
+                    imageSectionElement.style.backgroundPosition = '';
+                    imageSectionElement.style.backgroundRepeat = '';
+                    imageSectionElement.style.filter = '';
+                    
+                    // Restore flex-grow
+                    imageSectionElement.style.flexGrow = originalFlexGrow || '';
                 }
             }
-        });
-
-        const mimeType = format === 'png' ? 'image/png' : 'image/jpeg';
-        const filename = `cookbook_cover_a4.${format}`;
-        const downloadLink = canvas.toDataURL(mimeType, 1.0);
-
-        const a = document.createElement('a');
-        a.href = downloadLink;
-        a.download = filename;
-        document.body.appendChild(a);
-        a.click();
-        document.body.removeChild(a);
-
-        currentBtn.textContent = originalText;
-        currentBtn.disabled = false;
-    } catch (error) {
-        console.error("Error generating or downloading cover:", error);
-
-        const errorDiv = document.createElement('div');
-        errorDiv.textContent = `Error: Could not generate ${format.toUpperCase()}. Check console for details.`;
-        errorDiv.className = 'error-message fixed top-4 right-4 m-4 p-3 bg-red-600 text-white font-semibold rounded-lg shadow-lg';
-        document.body.appendChild(errorDiv);
-        setTimeout(() => document.body.removeChild(errorDiv), 7000);
-
-        currentBtn.textContent = originalText;
-        currentBtn.disabled = false;
-    }
-}
 
 
             // --- Dedicated Image File Handler ---
@@ -446,7 +495,9 @@ async function generateAndDownload(format) {
                 controls.subHeadlinePosition, controls.subHeadlineColor, controls.subHeadlineFont, controls.subHeadlineSize, 
                 controls.headlineColor, controls.headlineFont, controls.headlineSize, 
                 controls.sloganColor, controls.sloganFont, controls.sloganSize,
-                controls.overlayColor, controls.overlayOpacity, controls.grayscaleToggle 
+                controls.overlayColor, controls.overlayOpacity, controls.grayscaleToggle,
+                // Border controls (NEW)
+                controls.borderToggle, controls.borderColor, controls.borderWidth
             ]
             .forEach(control => {
                 control.addEventListener('input', updateCover);
@@ -464,10 +515,11 @@ async function generateAndDownload(format) {
 </head>
 <body class="bg-primary-bg min-h-screen p-4 md:p-8 font-inter">
 
-    <div class="max-w-6xl mx-auto grid grid-cols-1 lg:grid-cols-3 gap-8">
+    <!-- FIXED: Layout with proper height constraints -->
+    <div class="max-w-6xl mx-auto flex flex-col lg:flex-row gap-6 lg:h-[calc(100vh-4rem)]">
         
-        <!-- Controls Panel -->
-        <div id="controls" class="lg:col-span-1 p-6 bg-gray-800 rounded-xl shadow-2xl h-full overflow-y-auto">
+        <!-- Controls Panel - Scrollable on desktop -->
+        <div id="controls" class="lg:w-2/5 w-full p-6 bg-gray-800 rounded-xl shadow-2xl overflow-y-auto lg:h-full">
             <h2 class="text-3xl font-bold text-white mb-6 border-b border-gray-700 pb-3">Cover Customization</h2>
 
             <!-- Download Buttons -->
@@ -524,6 +576,23 @@ async function generateAndDownload(format) {
                     <option value="top-2-3">Image at Top (2/3 Size)</option>
                     <option value="bottom-2-3">Image at Bottom (2/3 Size)</option>
                 </select>
+            </div>
+
+            <!-- Border Controls (NEW) -->
+            <div class="control-group">
+                <h3 class="text-xl font-semibold text-white mb-3">Border</h3>
+                
+                <div class="flex items-center mb-4">
+                    <input type="checkbox" id="border-toggle" class="h-4 w-4 text-secondary-bg rounded border-gray-500 focus:ring-secondary-bg">
+                    <label for="border-toggle" class="ml-2 block text-sm font-medium text-gray-300">Enable Border</label>
+                </div>
+                
+                <label for="border-color" class="block text-sm font-medium text-gray-300 mb-1">Border Color</label>
+                <input type="color" id="border-color" value="#FFFFFF" class="w-full h-10 mb-4 rounded-lg border-2 border-gray-600">
+                
+                <label for="border-width" class="block text-sm font-medium text-gray-300 mb-1">Border Width (px)</label>
+                <input type="range" id="border-width" min="1" max="20" value="5" class="range-input">
+                <span id="border-width-display" class="text-xs text-gray-400">5px</span>
             </div>
 
             <!-- Style Controls (UPDATED for Gradient) -->
@@ -669,18 +738,17 @@ async function generateAndDownload(format) {
                 </select>
 
                 <label for="slogan-size" class="block text-sm font-medium text-gray-300 mb-1">Size (px)</label>
-                <input type="range" id="slogan-size" min="12" max="30" value="18" class="range-input">
+                <input type="range" id="slogan-size" min="10" max="40" value="18" class="range-input">
                 <span id="slogan-size-display" class="text-xs text-gray-400">18px</span>
             </div>
-
         </div>
 
-        <!-- Cover Preview Area -->
-        <div class="lg:col-span-2 flex justify-center items-center relative">
-            <!-- Straight edges, A4 aspect ratio (1:1.414) -->
-            <div id="cover-preview-container" class="w-full max-w-sm md:max-w-md lg:max-w-xl aspect-[1/1.414] shadow-2xl overflow-hidden transition-all duration-300">
+        <!-- Cover Preview Panel - FIXED: Now properly constrained to viewport -->
+        <div class="lg:w-3/5 w-full flex-shrink-0 flex items-center justify-center p-2 lg:h-full">
+            <!-- FIXED: Added max-height constraint to ensure full cover is visible -->
+            <div id="cover-preview-container" class="aspect-[1/1.414] shadow-2xl overflow-hidden transition-all duration-300" style="box-sizing: border-box;">
                 
-                <div id="cover-preview" class="flex flex-col h-full">
+                <div id="cover-preview" class="flex flex-col h-full w-full">
                     
                     <!-- Image Section (UPDATED for Overlay and Grayscale) -->
                     <div id="image-section" class="overflow-hidden relative" style="flex-grow: 1;">
@@ -728,264 +796,5 @@ async function generateAndDownload(format) {
 
     </div>
 
-    <script>
-        document.addEventListener('DOMContentLoaded', () => {
-            const controls = {
-                // Content
-                subHeadlineInput: document.getElementById('sub-headline-input'), 
-                headlineInput: document.getElementById('headline-input'),
-                sloganInput: document.getElementById('slogan-input'),
-                imageFileInput: document.getElementById('image-file-input'), 
-                
-                // Logo
-                logoFileInput: document.getElementById('logo-file-input'), 
-                logoSize: document.getElementById('logo-size'),
-                
-                // Layout
-                imagePosition: document.getElementById('image-position'),
-
-                // Background/Gradient
-                bgColor: document.getElementById('bg-color'), 
-                bgColor2: document.getElementById('bg-color-2'), 
-                gradientDirection: document.getElementById('gradient-direction'), 
-                
-                // Image Effects
-                overlayColor: document.getElementById('overlay-color'),
-                overlayOpacity: document.getElementById('overlay-opacity'),
-                grayscaleToggle: document.getElementById('grayscale-toggle'),
-
-                // Divider Controls
-                dividerColor: document.getElementById('divider-color'),
-                dividerThickness: document.getElementById('divider-thickness'),
-                
-                // Sub-Headline Styles (Updated with Position)
-                subHeadlinePosition: document.getElementById('sub-headline-position'), // NEW
-                subHeadlineColor: document.getElementById('sub-headline-color'),
-                subHeadlineFont: document.getElementById('sub-headline-font'),
-                subHeadlineSize: document.getElementById('sub-headline-size'),
-
-                // Headline Styles
-                headlineColor: document.getElementById('headline-color'),
-                headlineFont: document.getElementById('headline-font'),
-                headlineSize: document.getElementById('headline-size'),
-                
-                // Slogan Styles
-                sloganColor: document.getElementById('slogan-color'),
-                sloganFont: document.getElementById('slogan-font'),
-                sloganSize: document.getElementById('slogan-size'),
-            };
-
-            const previewElements = {
-                coverPreviewContainer: document.getElementById('cover-preview-container'),
-                coverPreview: document.getElementById('cover-preview'),
-                imageSection: document.getElementById('image-section'),
-                coverImage: document.getElementById('cover-image'),
-                // Image Overlay
-                imageOverlay: document.getElementById('image-overlay'),
-                textSection: document.getElementById('text-section'),
-                
-                // Divider Element
-                dividerLine: document.getElementById('divider-line'), 
-                
-                // Text Elements
-                logoImage: document.getElementById('logo-image'), 
-                subHeadlineText: document.getElementById('sub-headline-text'), 
-                headline: document.getElementById('headline'),
-                slogan: document.getElementById('slogan'),
-
-                // Displays
-                headlineSizeDisplay: document.getElementById('headline-size-display'),
-                sloganSizeDisplay: document.getElementById('slogan-size-display'),
-                subHeadlineSizeDisplay: document.getElementById('sub-headline-size-display'),
-                dividerThicknessDisplay: document.getElementById('divider-thickness-display'), 
-                logoSizeDisplay: document.getElementById('logo-size-display'),
-                overlayOpacityDisplay: document.getElementById('overlay-opacity-display'),
-                downloadPngBtn: document.getElementById('download-png-btn'),
-                downloadJpgBtn: document.getElementById('download-jpg-btn'),
-            };
-
-            const fontMap = {
-                'inter': 'Inter, sans-serif',
-                'serif': 'Playfair Display, serif',
-                'mono': 'Space Mono, monospace',
-                'oswald': 'Oswald, sans-serif',
-                'pacifico': 'Pacifico, cursive',
-                'slab': 'Roboto Slab, serif',
-                'lobster': 'Lobster, cursive',
-                'lora': 'Lora, serif',
-                'montserrat': 'Montserrat, sans-serif',
-                'fjalla': 'Fjalla One, sans-serif',
-                'marker': 'Permanent Marker, cursive',
-                'bebas': 'Bebas Neue, sans-serif',
-                'dancing': 'Dancing Script, cursive',
-                'righteous': 'Righteous, cursive',
-                'vollkorn': 'Vollkorn, serif',
-            };
-
-            const hexToRgba = (hex, alpha) => {
-                const r = parseInt(hex.slice(1, 3), 16);
-                const g = parseInt(hex.slice(3, 5), 16);
-                const b = parseInt(hex.slice(5, 7), 16);
-                return `rgba(${r}, ${g}, ${b}, ${alpha})`;
-            };
-            
-            /**
-             * Updates the cover design based on current control values.
-             */
-            function updateCover() {
-                const position = controls.imagePosition.value;
-
-                // 1. Layout Control: Set Order and Ratio
-                previewElements.coverPreview.classList.remove('flex-col', 'flex-col-reverse');
-                if (position.includes('bottom')) {
-                    previewElements.coverPreview.classList.add('flex-col-reverse');
-                } else {
-                    previewElements.coverPreview.classList.add('flex-col');
-                }
-
-                if (position.includes('2-3')) {
-                    previewElements.imageSection.style.flexGrow = '2';
-                    previewElements.textSection.style.flexGrow = '1';
-                } else {
-                    previewElements.imageSection.style.flexGrow = '1';
-                    previewElements.textSection.style.flexGrow = '1';
-                }
-
-                // 2. Text Section Background (Gradient UPDATED)
-                const color1 = controls.bgColor.value;
-                const color2 = controls.bgColor2.value;
-                const direction = controls.gradientDirection.value;
-
-                if (direction === 'solid') {
-                    previewElements.textSection.style.backgroundImage = 'none';
-                    previewElements.textSection.style.backgroundColor = color1;
-                } else {
-                    previewElements.textSection.style.backgroundImage = `linear-gradient(${direction}, ${color1}, ${color2})`;
-                    previewElements.textSection.style.backgroundColor = color1; // Fallback
-                }
-
-
-                // 3. Divider Line Updates
-                const thickness = controls.dividerThickness.value;
-                previewElements.dividerLine.style.backgroundColor = controls.dividerColor.value;
-                previewElements.dividerLine.style.height = `${thickness}px`;
-                previewElements.dividerThicknessDisplay.textContent = `${thickness}px (Set to 0 to hide)`;
-
-                // 4. Logo Updates
-                const logoHeight = controls.logoSize.value;
-                previewElements.logoImage.style.maxHeight = `${logoHeight}px`;
-                previewElements.logoSizeDisplay.textContent = `${logoHeight}px (Set to 0 to hide logo)`;
-                
-                if (parseInt(logoHeight) > 0) {
-                    previewElements.logoImage.classList.remove('hidden');
-                } else {
-                    previewElements.logoImage.classList.add('hidden');
-                }
-                
-                // 5. Image Effects (NEW)
-                const opacity = controls.overlayOpacity.value / 100;
-                const overlayColor = controls.overlayColor.value;
-                const grayscale = controls.grayscaleToggle.checked;
-                
-                // Grayscale Filter on Image
-                previewElements.coverImage.style.filter = grayscale ? 'grayscale(100%)' : 'none';
-                
-                // Color Overlay on separate div
-                previewElements.imageOverlay.style.backgroundColor = hexToRgba(overlayColor, opacity);
-                previewElements.overlayOpacityDisplay.textContent = `${controls.overlayOpacity.value}%`;
-
-                // 6. Sub-Headline Updates (NEW: Position and Styles)
-                previewElements.subHeadlineText.textContent = controls.subHeadlineInput.value;
-                previewElements.subHeadlineText.style.color = controls.subHeadlineColor.value;
-                previewElements.subHeadlineText.style.fontFamily = fontMap[controls.subHeadlineFont.value];
-                previewElements.subHeadlineText.style.fontSize = `${controls.subHeadlineSize.value}px`;
-                previewElements.subHeadlineSizeDisplay.textContent = `${controls.subHeadlineSize.value}px`;
-                
-                // Position logic: Apply order-last to move it below slogan
-                const subHeadlinePosition = controls.subHeadlinePosition.value;
-                previewElements.subHeadlineText.classList.remove('order-last'); 
-                if (subHeadlinePosition === 'bottom') {
-                    previewElements.subHeadlineText.classList.add('order-last');
-                }
-
-                // 7. Headline Updates
-                previewElements.headline.textContent = controls.headlineInput.value;
-                previewElements.headline.style.color = controls.headlineColor.value;
-                previewElements.headline.style.fontFamily = fontMap[controls.headlineFont.value];
-                previewElements.headline.style.fontSize = `${controls.headlineSize.value}px`;
-                previewElements.headlineSizeDisplay.textContent = `${controls.headlineSize.value}px`;
-                
-                // 8. Slogan Updates
-                previewElements.slogan.textContent = controls.sloganInput.value;
-                previewElements.slogan.style.color = controls.sloganColor.value;
-                previewElements.slogan.style.fontFamily = fontMap[controls.sloganFont.value];
-                previewElements.slogan.style.fontSize = `${controls.sloganSize.value}px`;
-                previewElements.sloganSizeDisplay.textContent = `${controls.sloganSize.value}px`;
-            }
-
-            /**
-             * Converts the cover preview element into a high-resolution file (PNG or JPEG) and triggers download.
-             */
-
-            // --- Dedicated Image File Handler ---
-            controls.imageFileInput.addEventListener('change', function(event) {
-                const file = event.target.files[0];
-                if (file) {
-                    const reader = new FileReader();
-                    reader.onload = function(e) {
-                        previewElements.coverImage.src = e.target.result;
-                    };
-                    reader.readAsDataURL(file);
-                } else {
-                    previewElements.coverImage.src = "https://placehold.co/2480x3508/4CAF50/FFFFFF?text=Upload+Recipe+Image";
-                }
-            });
-
-            // --- Dedicated Logo File Handler ---
-            controls.logoFileInput.addEventListener('change', function(event) {
-                const file = event.target.files[0];
-                if (file) {
-                    const reader = new FileReader();
-                    reader.onload = function(e) {
-                        previewElements.logoImage.src = e.target.result;
-                        if (controls.logoSize.value === '0') {
-                            controls.logoSize.value = 50;
-                        }
-                        updateCover(); 
-                    };
-                    reader.readAsDataURL(file);
-                } else {
-                    previewElements.logoImage.src = "https://placehold.co/100x40/000000/FFFFFF?text=LOGO";
-                    controls.logoSize.value = 0; // Hide logo if file is cleared
-                    updateCover(); 
-                }
-            });
-
-            // Attach event listeners for all controls
-            [
-                controls.headlineInput, controls.sloganInput, controls.subHeadlineInput, 
-                controls.imagePosition, 
-                controls.bgColor, controls.bgColor2, controls.gradientDirection, 
-                controls.dividerColor, controls.dividerThickness, 
-                controls.logoSize,
-                // New/Updated controls
-                controls.subHeadlinePosition, controls.subHeadlineColor, controls.subHeadlineFont, controls.subHeadlineSize, 
-                controls.headlineColor, controls.headlineFont, controls.headlineSize, 
-                controls.sloganColor, controls.sloganFont, controls.sloganSize,
-                controls.overlayColor, controls.overlayOpacity, controls.grayscaleToggle 
-            ]
-            .forEach(control => {
-                control.addEventListener('input', updateCover);
-                control.addEventListener('change', updateCover); 
-            });
-
-            // Attach listeners for the download buttons
-            previewElements.downloadPngBtn.addEventListener('click', () => generateAndDownload('png'));
-            previewElements.downloadJpgBtn.addEventListener('click', () => generateAndDownload('jpg'));
-
-            // Initial call to set up the cover with default values
-            updateCover();
-        });
-    </script>
 </body>
 </html>
